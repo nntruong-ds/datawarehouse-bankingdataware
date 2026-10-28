@@ -1,0 +1,21 @@
+version: 2
+
+sources:
+  - name: core
+    description: Dữ liệu thô từ core banking (giả lập), nạp bởi include/data_generator/bankgen.py
+    schema: raw
+    loaded_at_field: ingested_at
+    tables:
+      - name: branches
+      - name: customers
+      - name: accounts
+      - name: transactions
+        description: Nhật ký sự kiện giao dịch. Một txn_id có thể có nhiều dòng (PENDING rồi SETTLED/REVERSED).
+        config:
+          freshness:
+            warn_after: {count: 30, period: hour}
+            error_after: {count: 54, period: hour}
+      - name: gl_entries
+        description: Bút toán sổ cái, mỗi journal_id gồm các dòng Nợ/Có.
+      - name: loans
+        description: Ảnh chụp trạng thái hiện tại của khoản vay (core ghi đè mỗi ngày).

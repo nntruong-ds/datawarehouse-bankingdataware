@@ -1,0 +1,15 @@
+snapshots:
+  - name: snap_loans
+    description: >
+      Lịch sử nhóm nợ của từng khoản vay (SCD Type 2). Mỗi lần nhóm nợ đổi,
+      dòng cũ được đóng (dbt_valid_to) và một dòng mới được mở.
+    relation: source('core', 'loans')
+    config:
+      unique_key: loan_id
+      # timestamp: dựa vào cột updated_at của nguồn để biết dòng có đổi không.
+      # Nếu nguồn KHÔNG có updated_at tin cậy, dùng strategy: check + check_cols.
+      strategy: timestamp
+      updated_at: updated_at
+      # Dòng còn hiệu lực có dbt_valid_to = 9999-12-31 thay vì NULL (dễ join theo khoảng)
+      dbt_valid_to_current: "'9999-12-31'::timestamp"
+      hard_deletes: invalidate

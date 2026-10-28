@@ -1,0 +1,23 @@
+# Thông tin kết nối đọc từ biến môi trường để không ghi mật khẩu vào code.
+# Chạy local: export các biến trong file .env (xem README) rồi gọi dbt.
+fin_dwh:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DWH_HOST', 'localhost') }}"
+      port: "{{ env_var('DWH_PORT', '5433') | int }}"
+      dbname: "{{ env_var('DWH_DB', 'dwh') }}"
+      user: "{{ env_var('DWH_USER', 'dbt_runner') }}"
+      password: "{{ env_var('DWH_PASSWORD', 'dbt_runner_pw') }}"
+      schema: dbt
+      threads: 4
+    ci:
+      type: postgres
+      host: "{{ env_var('DWH_HOST', 'localhost') }}"
+      port: "{{ env_var('DWH_PORT', '5432') | int }}"
+      dbname: "{{ env_var('DWH_DB', 'dwh') }}"
+      user: "{{ env_var('DWH_USER', 'dbt_runner') }}"
+      password: "{{ env_var('DWH_PASSWORD', 'dbt_runner_pw') }}"
+      schema: dbt
+      threads: 4

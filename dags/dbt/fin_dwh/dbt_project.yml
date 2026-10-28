@@ -1,0 +1,37 @@
+name: fin_dwh
+version: "1.0.0"
+config-version: 2
+profile: fin_dwh
+
+model-paths: ["models"]
+snapshot-paths: ["snapshots"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Cửa sổ quét lùi cho bảng fact giao dịch (ngày). Tăng lên khi có kỳ nghỉ dài:
+  #   dbt run --select fct_transactions --vars '{lookback_days: 7}'
+  lookback_days: 3
+
+models:
+  fin_dwh:
+    staging:
+      +schema: staging
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table
+      # Sau khi build mỗi model trong marts: bật RLS + tạo view che PII ở schema secure
+      +post-hook: "{{ apply_governance() }}"
+  elementary:
+    +schema: elementary
+
+snapshots:
+  fin_dwh:
+    +target_schema: snapshots
+
+data_tests:
+  fin_dwh:
+    +store_failures: false

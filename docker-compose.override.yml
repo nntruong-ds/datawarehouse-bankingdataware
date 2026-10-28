@@ -1,0 +1,33 @@
+# Postgres làm warehouse (khác với Postgres metadata của Airflow).
+#
+# Dùng được theo 2 cách:
+#   - Chưa cài Airflow:  docker compose -f docker-compose.override.yml up -d
+#   - Khi chạy Astro:    astro dev start   (Astro tự gộp file này vào)
+# Dừng cách 1 trước khi chuyển sang cách 2 (trùng cổng 5433).
+# Dữ liệu nằm ở volume tên cố định fin_dwh_pgdata nên đổi cách chạy không mất dữ liệu.
+
+services:
+  dwh:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: admin          # superuser, chỉ dùng để quản trị
+      POSTGRES_PASSWORD: admin_pw
+      POSTGRES_DB: dwh
+    ports:
+      - "5433:5432"                 # máy host kết nối localhost:5433
+    volumes:
+      - dwh_pgdata:/var/lib/postgresql/data
+      - ./warehouse/init:/docker-entrypoint-initdb.d:ro   # chỉ chạy khi volume còn trống
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d dwh"]
+      interval: 5s
+      retries: 10
+    networks:
+      - airflow                     # cùng mạng với các container Airflow -> host "dwh"
+
+volumes:
+  dwh_pgdata:
+    name: fin_dwh_pgdata
+
+networks:
+  airflow: {}

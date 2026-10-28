@@ -1,0 +1,148 @@
+version: 2
+
+# ---------------------------------------------------------------------------
+# Quy ước quản trị (macro apply_governance đọc các khóa meta này):
+#   model  config.meta.rls_branch_column: <cột>  -> bật RLS theo chi nhánh
+#   column config.meta.pii: true                 -> che trong view secure.*
+#          config.meta.masking: hash | partial | redact
+#            hash    = HMAC-SHA256 có khóa bí mật (vẫn join được giữa các bảng)
+#            partial = chỉ hiện 4 ký tự cuối
+#            redact  = trả về NULL
+#   Người có role pii_reader thấy dữ liệu gốc.
+# ---------------------------------------------------------------------------
+
+models:
+  - name: dim_date
+    columns:
+      - name: date_key
+        data_tests: [unique, not_null]
+
+  - name: dim_branch
+    columns:
+      - name: branch_key
+        data_tests: [unique, not_null]
+      - name: branch_id
+        data_tests: [unique, not_null]
+
+  - name: dim_customer
+    description: Khách hàng. Chứa PII -> người đọc chỉ thấy qua secure.dim_customer.
+    config:
+      meta:
+        rls_branch_column: branch_id
+    columns:
+      - name: customer_key
+        data_tests: [unique, not_null]
+      - name: full_name
+        config:
+          meta: {pii: true, masking: partial}
+      - name: national_id
+        description: Số CCCD 12 chữ số
+        config:
+          meta: {pii: true, masking: hash}
+        data_tests:
+          - dbt_expectations.expect_column_values_to_match_regex:
+              regex: "^[0-9]{12}$"
+      - name: phone
+        config:
+          meta: {pii: true, masking: partial}
+      - name: email
+        config:
+          meta: {pii: true, masking: hash}
+      - name: date_of_birth
+        config:
+          meta: {pii: true, masking: redact}
+      - name: branch_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_branch')
+                field: branch_id
+
+  - name: dim_account
+    config:
+      meta:
+        rls_branch_column: branch_id
+    columns:
+      - name: account_key
+        data_tests: [unique, not_null]
+      - name: currency
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["VND", "USD"]
+
+  - name: dim_loan_history
+    description: Lịch sử nhóm nợ (SCD2) từ snapshot snap_loans.
+    config:
+      meta:
+        rls_branch_column: branch_id
+    data_tests:
+      # Không có 2 phiên bản cùng mở tại một thời điểm cho một khoản vay
+      - dbt_expectations.expect_compound_columns_to_be_unique:
+          arguments:
+            column_list: ["loan_id", "valid_from"]
+    columns:
+      - name: loan_version_key
+        data_tests: [unique, not_null]
+      - name: debt_group
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_in_set:
+              arguments:
+                value_set: [1, 2, 3, 4, 5]
+
+  - name: fct_transactions
+    description: Fact giao dịch, incremental merge với cửa sổ quét lùi lookback_days.
+    config:
+      meta:
+        rls_branch_column: branch_id
+    data_tests:
+      - elementary.volume_anomalies:
+          arguments:
+            timestamp_column: ingested_at
+          config:
+            severity: warn
+    columns:
+      - name: txn_id
+        data_tests: [unique, not_null]
+      - name: amount
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+                strictly: true
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["PENDING", "SETTLED", "REVERSED"]
+      - name: account_key
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_account')
+                field: account_key
+
+  - name: fct_gl_entries
+    config:
+      meta:
+        rls_branch_column: branch_id
+    columns:
+      - name: entry_id
+        data_tests: [unique, not_null]
+      - name: debit_amount
+        data_tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: 0
+
+  - name: rpt_trial_balance_daily
+    description: Bảng cân đối số phát sinh theo ngày hạch toán × chi nhánh × loại tiền.
+    config:
+      meta:
+        rls_branch_column: branch_id
+
+  - name: rpt_npl_ratio_daily
+    description: Tỷ lệ nợ xấu theo ngày × chi nhánh, tính as-of từ dim_loan_history.
+    config:
+      meta:
+        rls_branch_column: branch_id

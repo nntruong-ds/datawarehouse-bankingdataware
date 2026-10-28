@@ -1,0 +1,7 @@
+packages:
+  # Bộ test dạng SQL (bản đang được duy trì; bản gốc calogica đã ngừng)
+  - package: metaplane/dbt_expectations
+    version: [">=0.10.0", "<1.0.0"]
+  # Giám sát chất lượng dữ liệu, lưu kết quả test, báo cáo HTML + lineage
+  - package: elementary-data/elementary
+    version: [">=0.20.0", "<1.0.0"]

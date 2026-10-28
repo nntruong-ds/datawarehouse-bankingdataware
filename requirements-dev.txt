@@ -1,0 +1,6 @@
+# Công cụ chạy trên máy host (venv .venv) — dùng cho Giai đoạn 1–5 và CI
+dbt-core>=1.12,<2
+dbt-postgres>=1.11,<2
+sqlfluff>=4,<5
+sqlfluff-templater-dbt>=4,<5
+psycopg2-binary>=2.9
