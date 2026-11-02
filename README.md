@@ -1,5 +1,7 @@
 # Banking Data Warehouse (dbt · Airflow · Postgres)
 
+![CI](https://github.com/nntruong-ds/datawarehouse-bankingdataware/actions/workflows/ci.yml/badge.svg)
+
 Kho dữ liệu ngân hàng giả lập chạy local: **Postgres 16 · dbt · Airflow 3 + Astronomer Cosmos · SQLFluff · GitHub Actions**.
 
 | Điểm chính | Ở đâu trong repo |
