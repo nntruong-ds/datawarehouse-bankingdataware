@@ -10,24 +10,30 @@
   )
 }}
 
+{#
+  Bút toán đã ghi thì không bao giờ sửa (muốn điều chỉnh thì ghi bút toán mới),
+  nên incremental chỉ cần lấy các entry_id CHƯA có trong bảng, không cần mốc
+  thời gian. Lọc theo max(ingested_at) thì một dòng có mốc thời gian lệch (vd bút
+  toán điều chỉnh nhập tay với now()) sẽ làm mọi bút toán mới sau đó bị bỏ qua.
+  Test assert_gl_entries_reconciled đối soát staging ↔ fact để bắt lỗi kiểu này.
+#}
 select
-    entry_id,
-    journal_id,
-    posting_date,
-    cast(to_char(posting_date, 'YYYYMMDD') as integer) as date_key,
-    {{ surrogate_key(['branch_id']) }} as branch_key,
-    branch_id,
-    gl_account,
-    currency,
-    debit_amount,
-    credit_amount,
-    source_txn_id,
-    ingested_at
-from {{ ref('stg_core__gl_entries') }}
+    s.entry_id,
+    s.journal_id,
+    s.posting_date,
+    cast(to_char(s.posting_date, 'YYYYMMDD') as integer) as date_key,
+    {{ surrogate_key(['s.branch_id']) }} as branch_key,
+    s.branch_id,
+    s.gl_account,
+    s.currency,
+    s.debit_amount,
+    s.credit_amount,
+    s.source_txn_id,
+    s.ingested_at
+from {{ ref('stg_core__gl_entries') }} as s
 {% if is_incremental() %}
-    -- Như fct_transactions: lọc theo thời điểm nạp, để bút toán bổ sung về trễ
-    -- (posting_date cũ) vẫn được lấy.
-    where ingested_at >= (
-        select coalesce(max(prev_run.ingested_at), '1900-01-01'::timestamp) from {{ this }} as prev_run
-    ) - interval '{{ var('lookback_days') | int }} days'
+    where not exists (
+        select 1 from {{ this }} as prev_run
+        where prev_run.entry_id = s.entry_id
+    )
 {% endif %}

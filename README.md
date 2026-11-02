@@ -67,7 +67,7 @@ erDiagram
 | `dim_branch`, `dim_customer`, `dim_account` | một chi nhánh / khách hàng / tài khoản | table |
 | `dim_loan_history` | một phiên bản của khoản vay (SCD Type 2) | từ snapshot |
 | `rpt_trial_balance_daily` | ngày hạch toán × chi nhánh × loại tiền | table |
-| `rpt_npl_ratio_daily` | ngày × chi nhánh, tỷ lệ nợ xấu (NPL) tại ngày đó | table |
+| `rpt_npl_ratio_daily` | ngày × chi nhánh, tỷ lệ nợ xấu (NPL) tại ngày đó; chỉ công bố ngày đủ lịch sử | table |
 
 ## Dự án làm được gì
 
@@ -76,7 +76,7 @@ erDiagram
 | Kimball star schema | 2 bảng fact (giao dịch, bút toán sổ cái) và 5 dimension dùng surrogate key | `dags/dbt/fin_dwh/models/marts/` |
 | Dữ liệu về trễ | Incremental `merge` lọc theo thời điểm nạp (`ingested_at`) chứ không theo ngày giao dịch, với cửa sổ quét lùi `lookback_days` (mặc định 3): giao dịch liên ngân hàng về trễ bao nhiêu ngày vẫn được chèn, và `PENDING → SETTLED/REVERSED` luôn được cập nhật. Test đối soát báo cả giao dịch thiếu lẫn sai trạng thái | `models/marts/fct_transactions.sql`, `tests/assert_no_late_transactions_missed.sql` |
 | Lịch sử nhóm nợ | dbt snapshot (SCD Type 2, strategy `timestamp`) giữ mọi lần khoản vay đổi nhóm nợ (nhóm 1–5, nợ xấu = nhóm 3–5) | `snapshots/snap_loans.yml`, `models/marts/dim_loan_history.sql` |
-| Chất lượng dữ liệu | 27 test: test có sẵn của dbt, `dbt_expectations` (regex, khoảng giá trị, tập giá trị) và test SQL tự viết, chạy ngay trong database | `models/marts/_marts.yml`, `tests/` |
+| Chất lượng dữ liệu | 29 test: test có sẵn của dbt, `dbt_expectations` (regex, khoảng giá trị, tập giá trị) và test SQL tự viết (đối soát nguồn ↔ fact cho giao dịch và sổ cái, kiểm chứng point-in-time của nợ xấu), chạy ngay trong database | `models/marts/_marts.yml`, `tests/` |
 | Circuit breaker | Kiểm tra ngay ở staging: nếu Nợ ≠ Có ở bất kỳ ngày hạch toán × chi nhánh × loại tiền nào, test fail, bảng fact sổ cái và các báo cáo phía sau bị bỏ qua, giữ nguyên số của lần chạy đúng gần nhất, nên không có số sai nào đến tay người dùng. Khi bút toán còn thiếu về, sổ cân lại và pipeline tự chạy tiếp | `tests/assert_trial_balance.sql` |
 | Bảo mật theo dòng (RLS) | Macro post-hook đọc `meta.rls_branch_column` trong YAML và tạo policy RLS của PostgreSQL: mỗi analyst chỉ thấy chi nhánh của mình | `macros/governance/apply_governance.sql` |
 | Che dữ liệu cá nhân (PII) | Cột gắn `meta: {pii: true}` được che trong các view `secure.*` (HMAC-SHA256 với khóa bí mật, che một phần hoặc ẩn hẳn); chỉ `pii_reader` thấy giá trị thật. Giá trị HMAC được pipeline băm sẵn lúc build; người đọc không có quyền gọi hàm băm | cùng macro trên, `warehouse/init/01_init.sql` |
@@ -161,7 +161,7 @@ Trong Airflow, trigger DAG `fin_dwh_daily` với tham số `inject_imbalance` đ
 │       ├── models/marts/           # star schema + báo cáo + test YAML và meta quản trị dữ liệu
 │       ├── snapshots/              # SCD Type 2 cho khoản vay
 │       ├── macros/governance/      # post-hook RLS + che PII
-│       └── tests/                  # circuit breaker, đối soát dữ liệu về trễ
+│       └── tests/                  # circuit breaker, đối soát nguồn ↔ fact, point-in-time nợ xấu
 ├── include/data_generator/         # sinh dữ liệu core-banking giả lập + nạp vào raw
 ├── warehouse/init/01_init.sql      # role, schema, hàm HMAC, bảng phân quyền chi nhánh
 ├── .github/workflows/ci.yml        # CI
@@ -178,13 +178,15 @@ Trong Airflow, trigger DAG `fin_dwh_daily` với tham số `inject_imbalance` đ
 - **Quản trị dữ liệu bằng metadata.** Quy tắc bảo mật nằm ngay cạnh định nghĩa cột trong YAML, nên muốn bảo vệ bảng mới chỉ cần thêm `meta`, và người review nhìn là biết cột nào chứa PII.
 - **HMAC thay vì SHA-256 thường, và băm sẵn.** Số CCCD 12 chữ số có thể dò ngược từ hash thường; HMAC thì cần khóa bí mật. Người đọc cũng không được gọi hàm băm: nếu gọi được, họ chỉ cần đoán một số CCCD rồi băm thử là biết đúng hay sai. Vì vậy pipeline băm sẵn lúc build và view chỉ đọc kết quả.
 - **Chặn số sai ở cửa vào.** Test cân đối sổ cái đặt trên staging chứ không trên bảng fact: nếu đặt trên fact, bảng fact và view `secure.*` của nó đã kịp nhận số sai trước khi test chạy.
+- **Sổ cái nạp theo khóa, không theo mốc thời gian.** Bút toán đã ghi thì không sửa, nên `fct_gl_entries` chỉ thêm các `entry_id` chưa có. Bản trước lọc theo `max(ingested_at)`: một bút toán điều chỉnh nhập tay với `now()` (giờ thật, trong khi dữ liệu giả lập ở quá khứ) đã làm bảng fact ngừng nhận bút toán mới mà sổ vẫn cân, không test nào báo. Giờ có thêm test đối soát staging ↔ fact theo ngày × chi nhánh × loại tiền.
+- **Kiểm chứng point-in-time của nợ xấu.** Báo cáo as-of từ SCD2 dễ sai ở hai chỗ: lịch sử bị hổng (snapshot chỉ ghi từ lần chạy đầu, khoản vay đổi nhóm trước đó "vắng mặt" ở các ngày cũ) và báo cáo tụt lại sau nguồn. Khi kiểm tra, ngày đầu kỳ chỉ đếm được 632/800 khoản vay, và vì nợ chủ yếu chuyển xấu đi nên tỷ lệ NPL bị thấp hơn thực tế. Cách xử lý: báo cáo chỉ công bố ngày mà mọi khoản vay đã giải ngân đều có đúng một phiên bản hiệu lực; test `assert_npl_point_in_time` đối chiếu với `raw.loans` (không qua snapshot, để không tự xác nhận chính logic cần kiểm tra): mỗi ngày đủ số khoản vay, ngày cuối khớp từng chi nhánh với trạng thái hiện tại, và báo cáo không dừng ở ngày cũ hơn lần đổi nhóm nợ mới nhất.
 - **Quyền tối thiểu.** Pipeline chạy bằng user không phải superuser, vì superuser bỏ qua được RLS.
 
 ## Hạn chế và hướng phát triển
 
 - Khóa HMAC đang lưu trong một bảng cho mục đích demo; khi chạy thật sẽ lấy từ secret manager.
 - PostgreSQL không có dynamic masking sẵn, nên việc che dữ liệu làm bằng view. Trên Snowflake hoặc BigQuery, cùng macro này sẽ sinh ra masking policy và row access policy.
-- Snapshot chỉ ghi lịch sử từ lần chạy đầu tiên; trạng thái khoản vay trước đó không được dựng lại.
+- Snapshot chỉ ghi lịch sử từ lần chạy đầu tiên; trạng thái khoản vay trước đó không được dựng lại, nên báo cáo nợ xấu chỉ bắt đầu từ ngày đó.
 - Tiếp theo: Slim CI (`state:modified+ --defer`), cảnh báo độ mới của nguồn (source freshness), dashboard BI trên `secure.*`.
 
 ## Tác giả
