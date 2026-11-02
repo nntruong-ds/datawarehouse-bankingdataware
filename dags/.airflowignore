@@ -1,0 +1,2 @@
+# Airflow chỉ cần quét file DAG, bỏ qua thư mục dbt project
+dbt/

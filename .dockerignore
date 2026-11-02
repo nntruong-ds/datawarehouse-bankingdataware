@@ -1,0 +1,11 @@
+# Không đưa những thứ này vào image Airflow (nặng, hoặc chỉ dùng trên máy bạn)
+.git
+.venv
+.env
+.astro
+airflow_settings.yaml
+logs/
+include/data_generator/data/
+dags/dbt/fin_dwh/target/
+dags/dbt/fin_dwh/dbt_packages/
+dags/dbt/fin_dwh/logs/

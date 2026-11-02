@@ -1,0 +1,75 @@
+# CI: mỗi lần push hoặc mở Pull Request, GitHub tự dựng một warehouse trống,
+# sinh 7 ngày dữ liệu giả lập, rồi kiểm tra 2 thứ:
+#   1. SQLFluff: code SQL đúng quy chuẩn
+#   2. dbt build: mọi model build được và mọi test đều đạt
+# Bất kỳ bước nào lỗi -> dấu X đỏ trên GitHub, biết ngay commit nào làm hỏng.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:        # cho phép bấm chạy tay trong tab Actions
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Warehouse tạm, chỉ sống trong lúc job chạy
+    services:
+      dwh:
+        image: postgres:16
+        env:
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: admin_pw
+          POSTGRES_DB: dwh
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U admin -d dwh"
+          --health-interval 5s
+          --health-retries 10
+
+    env:
+      DWH_HOST: localhost
+      DWH_PORT: "5432"          # biến môi trường được ưu tiên hơn file .env trong repo
+      DWH_DB: dwh
+      DWH_USER: dbt_runner
+      DWH_PASSWORD: dbt_runner_pw
+
+    steps:
+      - name: Lấy code
+        uses: actions/checkout@v5
+
+      - name: Cài Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Cài dbt, SQLFluff
+        run: pip install -r requirements-dev.txt
+
+      - name: Khởi tạo warehouse (role, schema, hàm băm)
+        env:
+          PGPASSWORD: admin_pw
+        run: psql -h localhost -U admin -d dwh -v ON_ERROR_STOP=1 -f warehouse/init/01_init.sql
+
+      - name: Sinh và nạp 7 ngày dữ liệu
+        run: |
+          python include/data_generator/bankgen.py init --days 7
+          python include/data_generator/bankgen.py load
+
+      - name: Cài dbt packages
+        working-directory: dags/dbt/fin_dwh
+        run: dbt deps
+
+      - name: Lint SQL (SQLFluff)
+        working-directory: dags/dbt/fin_dwh
+        run: sqlfluff lint models tests
+
+      - name: dbt build (snapshot + models + tests)
+        working-directory: dags/dbt/fin_dwh
+        run: dbt build
