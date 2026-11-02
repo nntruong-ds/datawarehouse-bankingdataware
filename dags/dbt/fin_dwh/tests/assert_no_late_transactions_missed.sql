@@ -2,7 +2,7 @@
   Đối soát nguồn ↔ fact: giao dịch có trong nguồn nhưng chưa vào fct_transactions.
   Nguyên nhân thường gặp: giao dịch về trễ hơn cửa sổ lookback_days.
   Cách xử lý: dbt run -s fct_transactions --vars '{lookback_days: 7}'
-  Mức warn: không chặn pipeline nhưng hiện cảnh báo + lưu vào Elementary.
+  Mức warn: không chặn pipeline nhưng hiện cảnh báo trong log dbt và Airflow.
 #}
 {{ config(severity='warn') }}
 

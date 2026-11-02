@@ -35,7 +35,7 @@ BANKGEN = os.environ.get("BANKGEN_SCRIPT", "/usr/local/airflow/include/data_gene
 
 project_config = ProjectConfig(
     dbt_project_path=DBT_PROJECT_PATH,
-    # Cosmos tự chạy `dbt deps` (cài dbt_expectations, elementary) trước khi chạy dbt.
+    # Cosmos tự chạy `dbt deps` (cài dbt_expectations) trước khi chạy dbt.
     # Khi project lớn: chạy deps sẵn trong CI rồi đặt False để nhanh hơn.
     install_dbt_deps=True,
 )
@@ -58,9 +58,6 @@ render_config = RenderConfig(
     # Test tham chiếu nhiều model (vd đối soát stg <-> fct) chạy SAU KHI mọi model
     # cha đã build xong, thay vì bị gắn vào model cha đầu tiên.
     should_detach_multiple_parents_tests=True,
-    # Model nội bộ của Elementary không cần hiện thành task; build 1 lần bằng tay
-    # (dbt run --select elementary). Kết quả test vẫn được Elementary ghi lại.
-    exclude=["package:elementary"],
 )
 
 

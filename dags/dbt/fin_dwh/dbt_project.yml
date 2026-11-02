@@ -25,8 +25,6 @@ models:
       +materialized: table
       # Sau khi build mỗi model trong marts: bật RLS + tạo view che PII ở schema secure
       +post-hook: "{{ apply_governance() }}"
-  elementary:
-    +schema: elementary
 
 snapshots:
   fin_dwh:

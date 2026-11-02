@@ -8,13 +8,9 @@ dags/dbt/fin_dwh/dbt_packages/
 dags/dbt/fin_dwh/logs/
 logs/
 
-# Elementary
-edr_target/
-
 # Dữ liệu giả lập sinh ra (sinh lại được bất cứ lúc nào)
 include/data_generator/data/
 
 # Astro
 airflow_settings.yaml
 .astro/test_dag_integrity_default.py
-.env

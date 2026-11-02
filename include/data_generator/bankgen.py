@@ -340,7 +340,7 @@ def cmd_reset_db(args) -> None:
         cur.execute(DDL)
         cur.execute("truncate raw.branches, raw.customers, raw.accounts, raw.transactions, "
                     "raw.gl_entries, raw.loans, raw._load_log")
-        cur.execute("drop schema if exists staging, marts, snapshots, elementary, dbt cascade")
+        cur.execute("drop schema if exists staging, marts, snapshots, dbt cascade")
         cur.execute("drop schema if exists secure cascade")
         cur.execute("create schema secure")
         cur.execute("grant usage on schema secure to analyst_base")

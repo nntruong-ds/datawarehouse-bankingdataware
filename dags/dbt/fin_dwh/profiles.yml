@@ -1,5 +1,5 @@
 # Thông tin kết nối đọc từ biến môi trường để không ghi mật khẩu vào code.
-# Chạy local: export các biến trong file .env (xem README) rồi gọi dbt.
+# Kết nối đọc từ biến môi trường; khi chạy trên máy, dbt tự nạp file .env cùng thư mục (localhost:5433).
 fin_dwh:
   target: dev
   outputs:

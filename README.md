@@ -1,6 +1,6 @@
-# Enterprise Financial Data Warehouse — Automated Governance & Compliance Platform
+# Banking Data Warehouse (dbt · Airflow · Postgres)
 
-Kho dữ liệu ngân hàng giả lập chạy local: **Postgres 16 · dbt · Airflow 3 + Astronomer Cosmos · Elementary · SQLFluff · GitHub Actions**.
+Kho dữ liệu ngân hàng giả lập chạy local: **Postgres 16 · dbt · Airflow 3 + Astronomer Cosmos · SQLFluff · GitHub Actions**.
 
 | Điểm chính | Ở đâu trong repo |
 | --- | --- |
