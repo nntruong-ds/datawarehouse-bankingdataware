@@ -4,7 +4,8 @@ sources:
   - name: core
     description: Dữ liệu thô từ core banking (giả lập), nạp bởi include/data_generator/bankgen.py
     schema: raw
-    loaded_at_field: ingested_at
+    # Freshness đo theo _loaded_at: lúc WAREHOUSE nhận dữ liệu (giờ thật của DB), không theo
+    # ingested_at của nguồn (đồng hồ giả lập, có thể ở quá khứ). Chạy: dbt source freshness
     tables:
       - name: branches
       - name: customers
@@ -12,10 +13,16 @@ sources:
       - name: transactions
         description: Nhật ký sự kiện giao dịch. Một txn_id có thể có nhiều dòng (PENDING rồi SETTLED/REVERSED).
         config:
+          loaded_at_field: _loaded_at
           freshness:
             warn_after: {count: 30, period: hour}
             error_after: {count: 54, period: hour}
       - name: gl_entries
         description: Bút toán sổ cái, mỗi journal_id gồm các dòng Nợ/Có.
+        config:
+          loaded_at_field: _loaded_at
+          freshness:
+            warn_after: {count: 30, period: hour}
+            error_after: {count: 54, period: hour}
       - name: loans
         description: Ảnh chụp trạng thái hiện tại của khoản vay (core ghi đè mỗi ngày).

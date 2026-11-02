@@ -1,7 +1,8 @@
 # CI: mỗi lần push hoặc mở Pull Request, GitHub tự dựng một warehouse trống,
-# sinh 7 ngày dữ liệu giả lập, rồi kiểm tra 2 thứ:
-#   1. SQLFluff: code SQL đúng quy chuẩn
-#   2. dbt build: mọi model build được và mọi test đều đạt
+# sinh 7 ngày dữ liệu giả lập, rồi kiểm tra 3 thứ:
+#   1. dbt source freshness: cấu hình độ mới của nguồn chạy được
+#   2. SQLFluff: code SQL đúng quy chuẩn
+#   3. dbt build: mọi model build được và mọi test đều đạt
 # Bất kỳ bước nào lỗi -> dấu X đỏ trên GitHub, biết ngay commit nào làm hỏng.
 name: CI
 
@@ -65,6 +66,10 @@ jobs:
       - name: Cài dbt packages
         working-directory: dags/dbt/fin_dwh
         run: dbt deps
+
+      - name: Độ mới của nguồn (source freshness)
+        working-directory: dags/dbt/fin_dwh
+        run: dbt source freshness
 
       - name: Lint SQL (SQLFluff)
         working-directory: dags/dbt/fin_dwh

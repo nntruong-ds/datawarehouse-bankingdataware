@@ -8,5 +8,6 @@ select
     coalesce(debit_amount, 0) as debit_amount,
     coalesce(credit_amount, 0) as credit_amount,
     source_txn_id,
-    ingested_at
+    ingested_at,
+    _loaded_at as loaded_at
 from {{ source('core', 'gl_entries') }}

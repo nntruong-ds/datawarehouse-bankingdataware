@@ -7,31 +7,38 @@
     indexes=[
       {'columns': ['txn_id'], 'unique': True},
       {'columns': ['txn_date']},
-      {'columns': ['branch_id']}
+      {'columns': ['branch_id']},
+      {'columns': ['loaded_at']}
     ]
   )
 }}
 
 {#
-  Bảng fact giao dịch — INCREMENTAL MERGE + QUÉT LÙI.
+  Bảng fact giao dịch — INCREMENTAL MERGE theo mốc nạp của warehouse.
 
   Lần đầu (hoặc --full-refresh): build toàn bộ.
-  Các lần sau: chỉ đọc giao dịch có sự kiện mới NẠP VÀO (ingested_at) trong
-  N ngày gần nhất (N = var lookback_days, mặc định 3) rồi MERGE theo txn_id:
+  Các lần sau: chỉ lấy những txn_id có sự kiện mới mà WAREHOUSE nhận (_loaded_at)
+  kể từ lần chạy trước, rồi MERGE theo txn_id:
     - txn_id đã có  -> UPDATE (vd PENDING -> SETTLED/REVERSED)
     - txn_id chưa có -> INSERT (giao dịch liên ngân hàng về trễ)
-  Lọc theo ingested_at chứ KHÔNG theo txn_date: giao dịch phát sinh từ 5 ngày
-  trước nhưng hôm nay mới về (hoặc hôm nay mới quyết toán) vẫn được lấy.
-  N chỉ cần đủ lớn để bù cho những ngày pipeline không chạy; nếu vẫn sót,
-  test assert_no_late_transactions_missed cảnh báo để chạy lại với N lớn hơn.
+  Mốc là _loaded_at (đồng hồ DB lúc nạp), không phải txn_date hay ingested_at của
+  nguồn: giao dịch phát sinh từ 5 ngày trước mà hôm nay mới về / mới quyết toán vẫn
+  được lấy, và một dòng nguồn có mốc thời gian lệch không làm mốc nhảy lên tương lai.
+  Bảng chỉ xếp hạng lại các txn_id đó (không phải toàn bộ nhật ký), nên lần chạy
+  incremental tốn công theo lượng dữ liệu mới, không theo kích thước lịch sử.
+  Nếu vẫn sót, test assert_no_late_transactions_missed cảnh báo.
 #}
 
 with txn as (
     select * from {{ ref('stg_core__transactions') }}
     {% if is_incremental() %}
-        where ingested_at >= (
-            select coalesce(max(prev_run.ingested_at), '1900-01-01'::timestamp) from {{ this }} as prev_run
-        ) - interval '{{ var('lookback_days') | int }} days'
+        -- "= any(array(...))" (chứ không phải "in (select ...)") để Postgres đẩy điều
+        -- kiện xuống trước window của staging và dùng index theo txn_id.
+        where txn_id = any(array(
+            select distinct r.txn_id
+            from {{ source('core', 'transactions') }} as r
+            where r._loaded_at > {{ load_watermark() }}
+        ))
     {% endif %}
 )
 
@@ -54,6 +61,7 @@ select
     case when t.direction = 'IN' then t.amount else -t.amount end as amount_signed,
     t.status,
     t.ingested_at,
+    t.loaded_at,
     current_timestamp as dbt_updated_at
 from txn as t
 left join {{ ref('stg_core__accounts') }} as a

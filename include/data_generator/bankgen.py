@@ -15,6 +15,7 @@ mà hệ thống nguồn đẩy sang mỗi ngày. Lệnh `load` nạp các file 
 
 Cách dùng:
   python bankgen.py init --start 2026-09-01 --days 30   # sinh lịch sử 30 ngày
+  python bankgen.py init --days 60 --scale 10 --force   # ~30 nghìn giao dịch/ngày, để đo hiệu năng
   python bankgen.py load                                 # nạp file đến hạn
   python bankgen.py next-day                             # sinh thêm 1 ngày
   python bankgen.py next-day --inject-imbalance          # cố tình làm lệch sổ cái
@@ -152,9 +153,9 @@ def _gen_master(rng: random.Random, start: date) -> None:
 
 
 # ------------------------------------------------------------ một ngày giao dịch
-def _gen_day(rng: random.Random, d: date, inject_imbalance: bool = False) -> None:
+def _gen_day(rng: random.Random, d: date, inject_imbalance: bool = False, scale: int = 1) -> None:
     accounts = _read_csv(LANDING / "master" / "accounts.csv")
-    n = rng.randint(2500, 3500)
+    n = rng.randint(2500, 3500) * scale  # scale: nhân khối lượng giao dịch (mặc định 1)
     by_ingest: dict[date, tuple[list, list]] = {}
 
     def bucket(day: date):
@@ -260,10 +261,10 @@ def cmd_init(args) -> None:
     _gen_master(rng, start)
     for i in range(args.days):
         d = start + timedelta(days=i)
-        _gen_day(rng, d)
+        _gen_day(rng, d, scale=args.scale)
         _migrate_loans(rng, d)
     _save_state({"start": start.isoformat(), "current_date": (start + timedelta(days=args.days - 1)).isoformat(),
-                 "rng_state_seed": SEED + args.days})
+                 "rng_state_seed": SEED + args.days, "scale": args.scale})
     print(f"Đã sinh {args.days} ngày từ {start}. Ngày hiện tại mô phỏng: {_state()['current_date']}")
 
 
@@ -280,7 +281,7 @@ def cmd_next_day(args) -> None:
     if held:
         HELD_FILE.unlink()
     rng = random.Random(s["rng_state_seed"])
-    _gen_day(rng, d, inject_imbalance=args.inject_imbalance)
+    _gen_day(rng, d, inject_imbalance=args.inject_imbalance, scale=s.get("scale", 1))
     if held:
         # Dòng bị giữ lại về hôm nay, posting_date giữ nguyên ngày cũ (bút toán bổ sung)
         late_at = (datetime.combine(d, datetime.min.time()) + timedelta(hours=23)).isoformat()
@@ -320,6 +321,14 @@ create table if not exists raw.loans (loan_id text, customer_id text, branch_id 
     currency text, disbursed_date date, debt_group int, classified_date date, updated_at timestamp);
 create table if not exists raw._load_log (dataset text, ingest_date date, rows_loaded int,
     loaded_at timestamp default now(), primary key (dataset, ingest_date));
+-- _loaded_at: thời điểm WAREHOUSE nhận dòng (đồng hồ của DB), khác ingested_at do nguồn gửi
+-- sang (đồng hồ giả lập). Incremental và source freshness dựa vào cột này, nên một dòng có
+-- ingested_at lệch (vd nhập tay) không làm hỏng mốc của pipeline.
+alter table raw.transactions add column if not exists _loaded_at timestamptz not null default now();
+alter table raw.gl_entries add column if not exists _loaded_at timestamptz not null default now();
+create index if not exists ix_raw_transactions_loaded on raw.transactions (_loaded_at);
+create index if not exists ix_raw_transactions_txn on raw.transactions (txn_id);
+create index if not exists ix_raw_gl_entries_loaded on raw.gl_entries (_loaded_at);
 """
 
 
@@ -383,6 +392,7 @@ def main() -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("init"); a.add_argument("--start", default="2026-09-01")
     a.add_argument("--days", type=int, default=30); a.add_argument("--force", action="store_true")
+    a.add_argument("--scale", type=int, default=1, help="nhân khối lượng giao dịch mỗi ngày")
     b = sub.add_parser("next-day"); b.add_argument("--inject-imbalance", action="store_true")
     b.add_argument("--run-id", help="id lần chạy Airflow; trùng với lần trước thì bỏ qua")
     sub.add_parser("load")

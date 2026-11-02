@@ -11,9 +11,10 @@ target-path: "target"
 clean-targets: ["target", "dbt_packages"]
 
 vars:
-  # Cửa sổ quét lùi cho bảng fact giao dịch (ngày). Tăng lên khi có kỳ nghỉ dài:
-  #   dbt run --select fct_transactions --vars '{lookback_days: 7}'
-  lookback_days: 3
+  # Biên an toàn (phút) cho mốc incremental của các bảng fact: lấy thêm dữ liệu nạp
+  # trong N phút trước mốc lần chạy trước. 0 là đủ khi loader và dbt chạy tuần tự
+  # (như DAG này); tăng lên nếu loader có thể commit song song với lúc dbt chạy.
+  load_lookback_minutes: 0
 
 models:
   fin_dwh:

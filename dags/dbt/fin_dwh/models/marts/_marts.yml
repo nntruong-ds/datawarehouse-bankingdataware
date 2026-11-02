@@ -93,7 +93,7 @@ models:
                 quote_values: false   # cột số nguyên: không bọc giá trị trong dấu nháy
 
   - name: fct_transactions
-    description: Fact giao dịch, incremental merge với cửa sổ quét lùi lookback_days.
+    description: Fact giao dịch, incremental merge theo mốc nạp của warehouse (_loaded_at).
     config:
       meta:
         rls_branch_column: branch_id
