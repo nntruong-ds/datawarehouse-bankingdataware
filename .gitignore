@@ -12,6 +12,10 @@ logs/
 # Dữ liệu giả lập sinh ra (sinh lại được bất cứ lúc nào)
 include/data_generator/data/
 
-# Astro
+# Biến môi trường thật: chỉ commit file mẫu .env.example
+.env
+
+# Astro: chỉ giữ .astro/config.yaml (Astro CLI cần nó để nhận ra đây là project)
 airflow_settings.yaml
-.astro/test_dag_integrity_default.py
+.astro/*
+!.astro/config.yaml

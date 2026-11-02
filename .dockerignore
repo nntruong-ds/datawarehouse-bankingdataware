@@ -1,7 +1,7 @@
 # Không đưa những thứ này vào image Airflow (nặng, hoặc chỉ dùng trên máy bạn)
 .git
 .venv
-.env
+**/.env
 .astro
 airflow_settings.yaml
 logs/

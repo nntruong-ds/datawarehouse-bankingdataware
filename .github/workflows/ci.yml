@@ -33,7 +33,7 @@ jobs:
 
     env:
       DWH_HOST: localhost
-      DWH_PORT: "5432"          # biến môi trường được ưu tiên hơn file .env trong repo
+      DWH_PORT: "5432"          # repo không có file .env; CI lấy kết nối từ đây
       DWH_DB: dwh
       DWH_USER: dbt_runner
       DWH_PASSWORD: dbt_runner_pw

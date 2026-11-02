@@ -104,6 +104,10 @@ Dữ liệu demo nhỏ nên chênh lệch thời gian không lớn; lần chạy
 Yêu cầu: Ubuntu (hoặc WSL2), Docker, Python 3.10+, còn trống khoảng 4 GB RAM cho Airflow.
 
 ```bash
+# 0. Biến môi trường (file .env thật không nằm trong repo)
+cp .env.example .env
+cp dags/dbt/fin_dwh/.env.example dags/dbt/fin_dwh/.env
+
 # 1. Warehouse
 docker compose -f docker-compose.override.yml up -d
 
@@ -162,7 +166,8 @@ Trong Airflow, trigger DAG `fin_dwh_daily` với tham số `inject_imbalance` đ
 ├── warehouse/init/01_init.sql      # role, schema, hàm HMAC, bảng phân quyền chi nhánh
 ├── .github/workflows/ci.yml        # CI
 ├── Dockerfile                      # Astro Runtime + dbt trong virtualenv riêng
-└── docker-compose.override.yml     # warehouse Postgres
+├── docker-compose.override.yml     # warehouse Postgres
+└── .env.example                    # mẫu biến môi trường (cp thành .env)
 ```
 
 ## Quyết định thiết kế

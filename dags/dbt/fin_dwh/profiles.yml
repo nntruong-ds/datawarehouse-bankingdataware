@@ -1,5 +1,5 @@
 # Thông tin kết nối đọc từ biến môi trường để không ghi mật khẩu vào code.
-# Kết nối đọc từ biến môi trường; khi chạy trên máy, dbt tự nạp file .env cùng thư mục (localhost:5433).
+# Khi chạy trên máy, dbt tự nạp file .env cùng thư mục (tạo từ .env.example: localhost:5433).
 fin_dwh:
   target: dev
   outputs:
