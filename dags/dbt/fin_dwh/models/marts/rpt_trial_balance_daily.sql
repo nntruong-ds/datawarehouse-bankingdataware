@@ -1,7 +1,7 @@
 {#
   Bảng cân đối số phát sinh theo ngày hạch toán × chi nhánh × loại tiền.
   Tổng phát sinh Nợ phải bằng tổng phát sinh Có -> difference = 0.
-  Test assert_trial_balance chặn pipeline nếu có dòng lệch.
+  Test assert_trial_balance (trên stg_core__gl_entries) chặn pipeline nếu có dòng lệch.
 #}
 select
     posting_date,

@@ -6,6 +6,7 @@ __pycache__/
 dags/dbt/fin_dwh/target/
 dags/dbt/fin_dwh/dbt_packages/
 dags/dbt/fin_dwh/logs/
+dags/dbt/fin_dwh/.user.yml
 logs/
 
 # Dữ liệu giả lập sinh ra (sinh lại được bất cứ lúc nào)

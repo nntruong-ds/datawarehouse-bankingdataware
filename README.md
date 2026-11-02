@@ -74,12 +74,12 @@ erDiagram
 | Tính năng | Cách làm | Ở đâu |
 | --- | --- | --- |
 | Kimball star schema | 2 bảng fact (giao dịch, bút toán sổ cái) và 5 dimension dùng surrogate key | `dags/dbt/fin_dwh/models/marts/` |
-| Dữ liệu về trễ | Incremental `merge` với cửa sổ quét lùi tùy chỉnh (`lookback_days`, mặc định 3): cập nhật `PENDING → SETTLED` và chèn các giao dịch liên ngân hàng về trễ vài ngày | `models/marts/fct_transactions.sql` |
+| Dữ liệu về trễ | Incremental `merge` lọc theo thời điểm nạp (`ingested_at`) chứ không theo ngày giao dịch, với cửa sổ quét lùi `lookback_days` (mặc định 3): giao dịch liên ngân hàng về trễ bao nhiêu ngày vẫn được chèn, và `PENDING → SETTLED/REVERSED` luôn được cập nhật. Test đối soát báo cả giao dịch thiếu lẫn sai trạng thái | `models/marts/fct_transactions.sql`, `tests/assert_no_late_transactions_missed.sql` |
 | Lịch sử nhóm nợ | dbt snapshot (SCD Type 2, strategy `timestamp`) giữ mọi lần khoản vay đổi nhóm nợ (nhóm 1–5, nợ xấu = nhóm 3–5) | `snapshots/snap_loans.yml`, `models/marts/dim_loan_history.sql` |
 | Chất lượng dữ liệu | 27 test: test có sẵn của dbt, `dbt_expectations` (regex, khoảng giá trị, tập giá trị) và test SQL tự viết, chạy ngay trong database | `models/marts/_marts.yml`, `tests/` |
-| Circuit breaker | Nếu Nợ ≠ Có ở bất kỳ ngày hạch toán × chi nhánh × loại tiền nào, test sẽ fail và các báo cáo phía sau bị bỏ qua, nên không có số sai nào đến tay người dùng | `tests/assert_trial_balance.sql` |
+| Circuit breaker | Kiểm tra ngay ở staging: nếu Nợ ≠ Có ở bất kỳ ngày hạch toán × chi nhánh × loại tiền nào, test fail, bảng fact sổ cái và các báo cáo phía sau bị bỏ qua, giữ nguyên số của lần chạy đúng gần nhất, nên không có số sai nào đến tay người dùng. Khi bút toán còn thiếu về, sổ cân lại và pipeline tự chạy tiếp | `tests/assert_trial_balance.sql` |
 | Bảo mật theo dòng (RLS) | Macro post-hook đọc `meta.rls_branch_column` trong YAML và tạo policy RLS của PostgreSQL: mỗi analyst chỉ thấy chi nhánh của mình | `macros/governance/apply_governance.sql` |
-| Che dữ liệu cá nhân (PII) | Cột gắn `meta: {pii: true}` được che trong các view `secure.*` (HMAC-SHA256 với khóa bí mật, che một phần hoặc ẩn hẳn); chỉ `pii_reader` thấy giá trị thật | cùng macro trên, `warehouse/init/01_init.sql` |
+| Che dữ liệu cá nhân (PII) | Cột gắn `meta: {pii: true}` được che trong các view `secure.*` (HMAC-SHA256 với khóa bí mật, che một phần hoặc ẩn hẳn); chỉ `pii_reader` thấy giá trị thật. Giá trị HMAC được pipeline băm sẵn lúc build; người đọc không có quyền gọi hàm băm | cùng macro trên, `warehouse/init/01_init.sql` |
 | Điều phối | DAG Airflow chạy hằng ngày; Cosmos biến mỗi model dbt thành một task và chạy test ngay sau model đó, có retry | `dags/fin_dwh_daily.py` |
 | CI | Mỗi lần push / mở PR: dựng Postgres mới, sinh dữ liệu giả lập, lint bằng SQLFluff, chạy toàn bộ `dbt build` | `.github/workflows/ci.yml` |
 
@@ -137,10 +137,12 @@ Giả lập ngày làm việc tiếp theo, hoặc cố tình làm lệch sổ c�
 
 ```bash
 python include/data_generator/bankgen.py next-day                      # sinh thêm 1 ngày dữ liệu
-python include/data_generator/bankgen.py next-day --inject-imbalance   # xóa bớt một dòng Có
+python include/data_generator/bankgen.py next-day --inject-imbalance   # giữ lại một dòng Có
 python include/data_generator/bankgen.py load
-cd dags/dbt/fin_dwh && dbt build    # khi sổ lệch: FAIL assert_trial_balance, báo cáo SKIP
+cd dags/dbt/fin_dwh && dbt build    # khi sổ lệch: FAIL assert_trial_balance, fct_gl_entries và báo cáo SKIP
 ```
+
+Lần `next-day` kế tiếp, dòng Có bị giữ lại sẽ về như một bút toán bổ sung (giữ ngày hạch toán cũ), sổ cái cân trở lại và `dbt build` chạy xanh.
 
 Trong Airflow, trigger DAG `fin_dwh_daily` với tham số `inject_imbalance` để thấy điều tương tự trên giao diện.
 
@@ -165,11 +167,12 @@ Trong Airflow, trigger DAG `fin_dwh_daily` với tham số `inject_imbalance` đ
 
 ## Quyết định thiết kế
 
-- **Dữ liệu giả lập.** Ngân hàng không công bố dữ liệu giao dịch. Bộ sinh dữ liệu cố tình tạo ra các tình huống khó: khoảng 25% giao dịch liên ngân hàng về trễ 1–5 ngày, trạng thái thay đổi sau khi đã nạp, khoảng 1% khoản vay đổi nhóm nợ mỗi ngày, và có cờ để cố tình làm lệch sổ cái.
-- **Cửa sổ quét lùi thay vì "chỉ hôm nay".** Nếu không, các giao dịch liên ngân hàng về trễ sẽ bị mất. Một test đối soát (mức `warn`) báo mọi dòng về trễ hơn cửa sổ, và khi cần có thể chạy cửa sổ rộng hơn: `dbt run -s fct_transactions --vars '{lookback_days: 7}'`.
+- **Dữ liệu giả lập.** Ngân hàng không công bố dữ liệu giao dịch. Bộ sinh dữ liệu cố tình tạo ra các tình huống khó: khoảng 25% giao dịch liên ngân hàng về trễ 1–5 ngày, trạng thái thay đổi sau khi đã nạp, giao dịch bị trả về (REVERSED) có bút toán đảo, khoảng 1% khoản vay đổi nhóm nợ mỗi ngày, và có cờ để cố tình làm lệch sổ cái.
+- **Quét lùi theo thời điểm nạp, không theo ngày giao dịch.** Nếu lọc theo ngày giao dịch, một giao dịch phát sinh từ 4 ngày trước mà hôm nay mới quyết toán sẽ kẹt mãi ở `PENDING`. Lọc theo `ingested_at` thì mọi sự kiện mới về đều được lấy; cửa sổ `lookback_days` chỉ để bù những ngày pipeline không chạy. Một test đối soát (mức `warn`) báo giao dịch thiếu hoặc sai trạng thái, và khi cần có thể chạy cửa sổ rộng hơn: `dbt run -s fct_transactions --vars '{lookback_days: 7}'`.
 - **Mức độ nghiêm trọng của test.** `error` cho mọi thứ làm sai số liệu (sổ cái lệch, trùng khóa, khóa ngoại hỏng); `warn` cho những việc cần theo dõi mà không phải dừng pipeline.
 - **Quản trị dữ liệu bằng metadata.** Quy tắc bảo mật nằm ngay cạnh định nghĩa cột trong YAML, nên muốn bảo vệ bảng mới chỉ cần thêm `meta`, và người review nhìn là biết cột nào chứa PII.
-- **HMAC thay vì SHA-256 thường.** Số CCCD 12 chữ số có thể dò ngược từ hash thường; HMAC thì cần khóa bí mật.
+- **HMAC thay vì SHA-256 thường, và băm sẵn.** Số CCCD 12 chữ số có thể dò ngược từ hash thường; HMAC thì cần khóa bí mật. Người đọc cũng không được gọi hàm băm: nếu gọi được, họ chỉ cần đoán một số CCCD rồi băm thử là biết đúng hay sai. Vì vậy pipeline băm sẵn lúc build và view chỉ đọc kết quả.
+- **Chặn số sai ở cửa vào.** Test cân đối sổ cái đặt trên staging chứ không trên bảng fact: nếu đặt trên fact, bảng fact và view `secure.*` của nó đã kịp nhận số sai trước khi test chạy.
 - **Quyền tối thiểu.** Pipeline chạy bằng user không phải superuser, vì superuser bỏ qua được RLS.
 
 ## Hạn chế và hướng phát triển

@@ -6,7 +6,9 @@ Mô phỏng đúng 3 "vấn đề thật" mà dự án cần xử lý:
      PENDING -> SETTLED/REVERSED sau khi đã nạp.
   2. Khoản vay CHUYỂN NHÓM NỢ theo thời gian (nhóm 1-5; nhóm 3-5 là nợ xấu/NPL).
   3. Bút toán sổ cái (GL) luôn cân Nợ = Có, trừ khi bật --inject-imbalance để
-     thử cơ chế ngắt mạch.
+     thử cơ chế ngắt mạch: một dòng Có bị giữ lại, và về như bút toán bổ sung
+     trong lần next-day kế tiếp -> sổ cân trở lại, báo cáo chạy tiếp.
+     Giao dịch NAPAS bị REVERSED có bút toán đảo vào ngày quyết toán.
 
 Dữ liệu được ghi ra thư mục landing theo "ngày về" (ingest date), giống file
 mà hệ thống nguồn đẩy sang mỗi ngày. Lệnh `load` nạp các file đến hạn vào DB.
@@ -31,6 +33,7 @@ from pathlib import Path
 
 DATA_DIR = Path(os.environ.get("BANKGEN_DATA_DIR", Path(__file__).parent / "data"))
 LANDING = DATA_DIR / "landing"
+HELD_FILE = LANDING / "held_back_gl.csv"   # dòng Có bị --inject-imbalance giữ lại
 STATE_FILE = DATA_DIR / "state.json"
 SEED = 42
 
@@ -54,7 +57,7 @@ GL_CLEARING = "5012"       # Thanh toán bù trừ liên ngân hàng
 GL_FEE_INCOME = "7110"     # Thu phí dịch vụ thanh toán
 
 # Độ trễ của giao dịch NAPAS (ngày) và xác suất: phần lớn về trong ngày,
-# 1% về trễ 5 ngày (mô phỏng nghỉ lễ) — vượt cửa sổ quét lùi mặc định.
+# 1% về trễ 5 ngày (mô phỏng nghỉ lễ).
 NAPAS_DELAY = [(0, 0.75), (1, 0.15), (2, 0.06), (3, 0.03), (5, 0.01)]
 
 TXN_COLS = ["txn_id", "event_seq", "account_id", "branch_id", "txn_ts", "txn_date", "channel",
@@ -179,13 +182,13 @@ def _gen_day(rng: random.Random, d: date, inject_imbalance: bool = False) -> Non
                                        "ingested_at": ingested_at.isoformat()})
 
         # NAPAS: hôm sau mới có kết quả quyết toán -> sự kiện thứ 2 cùng txn_id
+        final = None
         if channel == "NAPAS":
             settle_day = ingest_day + timedelta(days=1)
+            settled_at = datetime.combine(settle_day, datetime.min.time()) + timedelta(hours=23)
             final = "REVERSED" if rng.random() < 0.02 else "SETTLED"
             bucket(settle_day)[0].append({
-                **base, "event_seq": 2, "status": final,
-                "ingested_at": (datetime.combine(settle_day, datetime.min.time())
-                                + timedelta(hours=23)).isoformat()})
+                **base, "event_seq": 2, "status": final, "ingested_at": settled_at.isoformat()})
 
         # Bút toán kép: tiền vào -> Nợ quỹ/bù trừ, Có tiền gửi KH; tiền ra ngược lại
         other = {"INTERNAL": GL_DEPOSIT, "NAPAS": GL_CLEARING, "ATM": GL_CASH}[channel]
@@ -203,13 +206,25 @@ def _gen_day(rng: random.Random, d: date, inject_imbalance: bool = False) -> Non
                 "gl_account": gl, "currency": cur, "debit_amount": de, "credit_amount": cr_amt,
                 "source_txn_id": txn_id, "ingested_at": ingested_at.isoformat()})
 
+        # Bị trả về: bút toán đảo (Nợ <-> Có) vào ngày quyết toán, kể cả phí
+        if final == "REVERSED":
+            for k, (gl, de, cr_amt) in enumerate(lines, 1):
+                bucket(settle_day)[1].append({
+                    "entry_id": f"{txn_id}-REV-{k}", "journal_id": f"{txn_id}-REV",
+                    "posting_date": settle_day.isoformat(), "branch_id": acc["branch_id"],
+                    "gl_account": gl, "currency": cur, "debit_amount": cr_amt, "credit_amount": de,
+                    "source_txn_id": txn_id, "ingested_at": settled_at.isoformat()})
+
     for ingest_day, (txns, gls) in by_ingest.items():
         if inject_imbalance and ingest_day == d and gls:
-            # Xóa 1 dòng Có -> sổ cái chi nhánh đó lệch, test phải chặn pipeline
+            # Giữ lại 1 dòng Có -> sổ cái chi nhánh đó lệch, test phải chặn pipeline.
+            # Lần next-day sau, dòng này về như bút toán bổ sung (xem cmd_next_day).
             idx = next(i for i, g in enumerate(gls) if float(g["credit_amount"]) > 0)
             removed = gls.pop(idx)
-            print(f"[inject-imbalance] Đã xóa dòng Có {removed['entry_id']} "
-                  f"({removed['branch_id']}, {removed['currency']}, {removed['credit_amount']})")
+            _write_csv(HELD_FILE, GL_COLS, [removed], append=True)
+            print(f"[inject-imbalance] Đã giữ lại dòng Có {removed['entry_id']} "
+                  f"({removed['branch_id']}, {removed['currency']}, {removed['credit_amount']}); "
+                  f"lần next-day sau nó sẽ về")
         tag = ingest_day.isoformat()
         _write_csv(LANDING / "transactions" / f"ingest_date={tag}.csv", TXN_COLS, txns, append=True)
         _write_csv(LANDING / "gl_entries" / f"ingest_date={tag}.csv", GL_COLS, gls, append=True)
@@ -256,12 +271,27 @@ def cmd_next_day(args) -> None:
     s = _state()
     if not s:
         raise SystemExit("Chưa init. Chạy: python bankgen.py init")
+    # Airflow truyền run_id: chạy lại / clear cùng một DAG run thì không sinh thêm ngày nữa
+    if args.run_id and s.get("last_run_id") == args.run_id:
+        print(f"Lần chạy {args.run_id} đã sinh ngày {s['current_date']}; bỏ qua để không sinh trùng.")
+        return
     d = date.fromisoformat(s["current_date"]) + timedelta(days=1)
+    held = _read_csv(HELD_FILE) if HELD_FILE.exists() else []
+    if held:
+        HELD_FILE.unlink()
     rng = random.Random(s["rng_state_seed"])
     _gen_day(rng, d, inject_imbalance=args.inject_imbalance)
+    if held:
+        # Dòng bị giữ lại về hôm nay, posting_date giữ nguyên ngày cũ (bút toán bổ sung)
+        late_at = (datetime.combine(d, datetime.min.time()) + timedelta(hours=23)).isoformat()
+        _write_csv(LANDING / "gl_entries" / f"ingest_date={d.isoformat()}.csv", GL_COLS,
+                   [{**g, "ingested_at": late_at} for g in held], append=True)
+        print(f"Đã nạp bổ sung {len(held)} dòng sổ cái bị giữ lại -> sổ cái cân trở lại.")
     changed = _migrate_loans(rng, d)
     s["current_date"] = d.isoformat()
     s["rng_state_seed"] += 1
+    if args.run_id:
+        s["last_run_id"] = args.run_id
     _save_state(s)
     print(f"Đã sinh ngày {d}; {changed} khoản vay đổi nhóm nợ.")
 
@@ -354,6 +384,7 @@ def main() -> None:
     a = sub.add_parser("init"); a.add_argument("--start", default="2026-09-01")
     a.add_argument("--days", type=int, default=30); a.add_argument("--force", action="store_true")
     b = sub.add_parser("next-day"); b.add_argument("--inject-imbalance", action="store_true")
+    b.add_argument("--run-id", help="id lần chạy Airflow; trùng với lần trước thì bỏ qua")
     sub.add_parser("load")
     sub.add_parser("reset-db")
     args = p.parse_args()

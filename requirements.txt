@@ -1,3 +1,3 @@
 # Thư viện cho môi trường Airflow (KHÔNG phải venv dbt)
-astronomer-cosmos>=1.15,<2
-psycopg2-binary>=2.9
+astronomer-cosmos==1.15.1
+psycopg2-binary==2.9.12

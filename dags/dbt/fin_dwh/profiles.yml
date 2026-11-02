@@ -12,12 +12,3 @@ fin_dwh:
       password: "{{ env_var('DWH_PASSWORD', 'dbt_runner_pw') }}"
       schema: dbt
       threads: 4
-    ci:
-      type: postgres
-      host: "{{ env_var('DWH_HOST', 'localhost') }}"
-      port: "{{ env_var('DWH_PORT', '5432') | int }}"
-      dbname: "{{ env_var('DWH_DB', 'dwh') }}"
-      user: "{{ env_var('DWH_USER', 'dbt_runner') }}"
-      password: "{{ env_var('DWH_PASSWORD', 'dbt_runner_pw') }}"
-      schema: dbt
-      threads: 4

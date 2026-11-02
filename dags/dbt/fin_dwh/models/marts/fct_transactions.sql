@@ -16,20 +16,22 @@
   Bảng fact giao dịch — INCREMENTAL MERGE + QUÉT LÙI.
 
   Lần đầu (hoặc --full-refresh): build toàn bộ.
-  Các lần sau: chỉ đọc giao dịch có txn_date trong N ngày gần nhất
-  (N = var lookback_days, mặc định 3) rồi MERGE theo txn_id:
+  Các lần sau: chỉ đọc giao dịch có sự kiện mới NẠP VÀO (ingested_at) trong
+  N ngày gần nhất (N = var lookback_days, mặc định 3) rồi MERGE theo txn_id:
     - txn_id đã có  -> UPDATE (vd PENDING -> SETTLED/REVERSED)
     - txn_id chưa có -> INSERT (giao dịch liên ngân hàng về trễ)
-  Giao dịch về trễ HƠN N ngày sẽ bị sót -> test
-  assert_no_late_transactions_missed cảnh báo để chạy lại với N lớn hơn.
+  Lọc theo ingested_at chứ KHÔNG theo txn_date: giao dịch phát sinh từ 5 ngày
+  trước nhưng hôm nay mới về (hoặc hôm nay mới quyết toán) vẫn được lấy.
+  N chỉ cần đủ lớn để bù cho những ngày pipeline không chạy; nếu vẫn sót,
+  test assert_no_late_transactions_missed cảnh báo để chạy lại với N lớn hơn.
 #}
 
 with txn as (
     select * from {{ ref('stg_core__transactions') }}
     {% if is_incremental() %}
-        where txn_date >= (
-            select coalesce(max(prev_run.txn_date), '1900-01-01'::date) from {{ this }} as prev_run
-        ) - {{ var('lookback_days') | int }}
+        where ingested_at >= (
+            select coalesce(max(prev_run.ingested_at), '1900-01-01'::timestamp) from {{ this }} as prev_run
+        ) - interval '{{ var('lookback_days') | int }} days'
     {% endif %}
 )
 

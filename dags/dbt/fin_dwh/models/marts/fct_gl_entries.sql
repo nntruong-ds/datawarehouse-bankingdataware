@@ -25,7 +25,9 @@ select
     ingested_at
 from {{ ref('stg_core__gl_entries') }}
 {% if is_incremental() %}
-    where posting_date >= (
-        select coalesce(max(prev_run.posting_date), '1900-01-01'::date) from {{ this }} as prev_run
-    ) - {{ var('lookback_days') | int }}
+    -- Như fct_transactions: lọc theo thời điểm nạp, để bút toán bổ sung về trễ
+    -- (posting_date cũ) vẫn được lấy.
+    where ingested_at >= (
+        select coalesce(max(prev_run.ingested_at), '1900-01-01'::timestamp) from {{ this }} as prev_run
+    ) - interval '{{ var('lookback_days') | int }} days'
 {% endif %}

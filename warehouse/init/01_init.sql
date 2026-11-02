@@ -68,7 +68,9 @@ alter table governance.pii_key owner to dbt_runner;
 insert into governance.pii_key values (encode(gen_random_bytes(32), 'hex'));
 revoke all on governance.pii_key from public;
 
--- Hàm băm: SECURITY DEFINER để người gọi dùng được khóa mà không đọc được khóa.
+-- Hàm băm: SECURITY DEFINER để pipeline dùng được khóa mà không phải đọc khóa ra.
+-- CHỈ pipeline được gọi (dbt băm sẵn lúc build, xem apply_governance). Người đọc
+-- báo cáo mà gọi được hàm này thì đoán một số CCCD rồi băm thử là biết đúng/sai.
 create function governance.pii_hash(p_value text)
 returns text
 language sql stable security definer
@@ -80,7 +82,7 @@ as $$
 $$;
 alter function governance.pii_hash(text) owner to dbt_runner;
 revoke all on function governance.pii_hash(text) from public;
-grant execute on function governance.pii_hash(text) to analyst_base, role_etl;
+grant execute on function governance.pii_hash(text) to role_etl;
 
 -- Che một phần: giữ 4 ký tự cuối
 create function governance.pii_partial(p_value text)

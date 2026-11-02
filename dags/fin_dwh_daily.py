@@ -63,8 +63,8 @@ render_config = RenderConfig(
 
 @dag(
     dag_id="fin_dwh_daily",
-    schedule="15 6 * * *",  # 06:15 mỗi ngày (giờ UTC của Airflow)
-    start_date=datetime(2026, 10, 1),
+    schedule="15 6 * * *",  # 06:15 mỗi ngày theo giờ Việt Nam (múi giờ lấy từ start_date)
+    start_date=datetime(2026, 10, 1, tz="Asia/Ho_Chi_Minh"),
     catchup=False,
     max_active_runs=1,
     default_args={"retries": 1},
@@ -79,7 +79,8 @@ def fin_dwh_daily():
     generate_next_day = BashOperator(
         task_id="generate_next_day",
         bash_command=(
-            f"python {BANKGEN} next-day"
+            # run_id: clear / chạy lại cùng DAG run thì không sinh thêm ngày
+            f"python {BANKGEN} next-day --run-id '{{{{ run_id }}}}'"
             "{{ ' --inject-imbalance' if params.inject_imbalance else '' }}"
         ),
     )
@@ -95,7 +96,6 @@ def fin_dwh_daily():
         profile_config=profile_config,
         execution_config=execution_config,
         render_config=render_config,
-        operator_args={"install_deps": True},
     )
 
     chain(generate_next_day, load_raw, transform)
